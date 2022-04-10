@@ -256,7 +256,7 @@ def create_csv(
         # Important: feel free to specify the text normalization
         # corresponding to your alphabet.
 
-        if language in ["en", "fr", "it", "rw"]:
+        if language in ["en", "fr", "it", "rw", "sp"]:
             words = re.sub(
                 "[^’'A-Za-z0-9À-ÖØ-öø-ÿЀ-ӿéæœâçèàûî]+", " ", words
             ).upper()
@@ -277,6 +277,7 @@ def create_csv(
                 + ALEF_HAMZA_ABOVE
             )
             words = re.sub("[^" + letters + "]+", " ", words).upper()
+        
         elif language == "ga-IE":
             # Irish lower() is complicated, but upper() is nondeterministic, so use lowercase
             def pfxuc(a):
@@ -287,6 +288,23 @@ def create_csv(
 
             words = re.sub("[^-A-Za-z'ÁÉÍÓÚáéíóú]+", " ", words)
             words = " ".join(map(galc, words.split(" ")))
+        
+        elif language == "sp":
+            words = words.replace("'", " ")
+            words = words.replace("’", " ")
+
+            #catalan = "ÏÀÒ"
+            words = words.replace("Ï", "I")
+            words = words.replace("À", "A")
+            words = words.replace("Ò", "O")
+            
+            # Remove russian speech: Cyrillic chars
+            cyrillic_chars = "\u0400-\u04FF"
+            # Remove proper nouns from other languages
+            proper_nouns = "ŒÛÙÅÌÞÎÝÕÆÐÖÃÄËØÊÔÂ"
+       
+            if(re.search("[" + cyrillic_chars  + proper_nouns + "]", words)):
+                continue
 
         # Remove accents if specified
         if not accented_letters:
