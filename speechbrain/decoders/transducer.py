@@ -259,6 +259,8 @@ class TransducerBeamSearcher(torch.nn.Module):
                 "prediction": [self.blank_id],
                 "logp_score": 0.0,
                 "hidden_dec": None,
+                "logp_token_score": [torch.tensor(0.0)],
+                "token_timestep": [0],
             }
             if self.lm_weight > 0:
                 lm_dict = {"hidden_lm": None}
@@ -334,6 +336,8 @@ class TransducerBeamSearcher(torch.nn.Module):
                             "logp_score": a_best_hyp["logp_score"]
                             + logp_targets[j],
                             "hidden_dec": a_best_hyp["hidden_dec"],
+                            "logp_token_score": a_best_hyp["logp_token_score"][:],
+                            "token_timestep": a_best_hyp["token_timestep"][:],
                         }
 
                         if positions[j] == self.blank_id:
@@ -351,6 +355,10 @@ class TransducerBeamSearcher(torch.nn.Module):
                                     self.lm_weight
                                     * log_probs_lm[0, 0, positions[j]]
                                 )
+
+                            topk_hyp["logp_token_score"].append(topk_hyp["logp_score"] - topk_hyp["logp_token_score"][-1])
+                            topk_hyp["token_timestep"].append(t_step)
+
                             process_hyps.append(topk_hyp)
             # Add norm score
             nbest_hyps = sorted(
@@ -372,6 +380,8 @@ class TransducerBeamSearcher(torch.nn.Module):
             )
             .exp()
             .mean(),
+            torch.tensor(topk_hyp["logp_token_score"][1:]).exp(),
+            topk_hyp["token_timestep"][1:],
             nbest_batch,
             nbest_batch_score,
         )
