@@ -40,6 +40,9 @@ class TransducerBeamSearcher(torch.nn.Module):
         that are added in A (process_hyp).
         Reference: https://arxiv.org/pdf/1911.01629.pdf
         Reference: https://github.com/kaldi-asr/kaldi/blob/master/src/decoder/simple-decoder.cc (See PruneToks)
+    return_confidences : bool
+        If `return_confidences` == `True`, then the token level confidences 
+        together with their timestamps would be returned.
 
     Example
     -------
@@ -95,6 +98,7 @@ class TransducerBeamSearcher(torch.nn.Module):
         lm_weight=0.0,
         state_beam=2.3,
         expand_beam=2.3,
+        return_confidences=False,
     ):
         super(TransducerBeamSearcher, self).__init__()
         self.decode_network_lst = decode_network_lst
@@ -105,6 +109,7 @@ class TransducerBeamSearcher(torch.nn.Module):
         self.nbest = nbest
         self.lm = lm_module
         self.lm_weight = lm_weight
+        self.return_confidences = return_confidences
 
         if lm_module is None and lm_weight > 0:
             raise ValueError("Language model is not provided.")
@@ -132,6 +137,8 @@ class TransducerBeamSearcher(torch.nn.Module):
         """
 
         hyps = self.searcher(tn_output)
+        if not self.return_confidences:
+            return hyps[:4]
         return hyps
 
     def transducer_greedy_decode(self, tn_output):
@@ -157,6 +164,8 @@ class TransducerBeamSearcher(torch.nn.Module):
         hyp = {
             "prediction": [[] for _ in range(tn_output.size(0))],
             "logp_scores": [0.0 for _ in range(tn_output.size(0))],
+            "logp_token_scores": [[0.0] for _ in range(tn_output.size(0))],
+            "token_timestep": [[] for _ in range(tn_output.size(0))],
         }
         # prepare BOS = Blank for the Prediction Network (PN)
         hidden = None
@@ -189,6 +198,8 @@ class TransducerBeamSearcher(torch.nn.Module):
                 if positions[i].item() != self.blank_id:
                     hyp["prediction"][i].append(positions[i].item())
                     hyp["logp_scores"][i] += logp_targets[i]
+                    hyp["logp_token_scores"][i].append(hyp["logp_scores"][i] - hyp["logp_tokens_scores"][i][-1])
+                    hyp["token_timestep"][i].append(t_step)
                     input_PN[i][0] = positions[i]
                     have_update_hyp.append(i)
             if len(have_update_hyp) > 0:
@@ -214,6 +225,8 @@ class TransducerBeamSearcher(torch.nn.Module):
             torch.Tensor(hyp["logp_scores"]).exp().mean(),
             None,
             None,
+            [torch.Tensor(hyp["logp_token_scores"][i][1:]).exp() for i in range(tn_output.size(0))]
+            hyp["token_timestep"]
         )
 
     def transducer_beam_search_decode(self, tn_output):
@@ -242,6 +255,8 @@ class TransducerBeamSearcher(torch.nn.Module):
         # min between beam and max_target_lent
         nbest_batch = []
         nbest_batch_score = []
+        token_scores_batch = []
+        token_ts_batch = []
         for i_batch in range(tn_output.size(0)):
             # if we use RNN LM keep there hiddens
             # prepare BOS = Blank for the Prediction Network (PN)
@@ -368,11 +383,17 @@ class TransducerBeamSearcher(torch.nn.Module):
             )[: self.nbest]
             all_predictions = []
             all_scores = []
+            all_token_scores = []
+            all_token_timesteps = []
             for hyp in nbest_hyps:
                 all_predictions.append(hyp["prediction"][1:])
                 all_scores.append(hyp["logp_score"] / len(hyp["prediction"]))
+                all_token_scores.append(torch.tensor(hyp["logp_token_score"][1:]).exp())
+                all_token_timesteps.append(hyp["token_timestep"])
             nbest_batch.append(all_predictions)
             nbest_batch_score.append(all_scores)
+            token_scores_batch.append(all_token_scores)
+            token_ts_batch.append(all_token_timesteps)
         return (
             [nbest_utt[0] for nbest_utt in nbest_batch],
             torch.Tensor(
@@ -380,10 +401,10 @@ class TransducerBeamSearcher(torch.nn.Module):
             )
             .exp()
             .mean(),
-            torch.tensor(topk_hyp["logp_token_score"][1:]).exp(),
-            topk_hyp["token_timestep"][1:],
             nbest_batch,
             nbest_batch_score,
+            token_scores_batch,
+            token_ts_batch,
         )
 
     def _joint_forward_step(self, h_i, out_PN):
