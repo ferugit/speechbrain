@@ -41,8 +41,8 @@ class TransducerBeamSearcher(torch.nn.Module):
         Reference: https://arxiv.org/pdf/1911.01629.pdf
         Reference: https://github.com/kaldi-asr/kaldi/blob/master/src/decoder/simple-decoder.cc (See PruneToks)
     return_confidences : bool
-        If `return_confidences` == `True`, then the token level confidences 
-        together with their timestamps would be returned.
+        This boolean option controls, whether to return the token level confidences (false by default).
+        If `True` token-level scores are returned together with their timestamps.
 
     Example
     -------
